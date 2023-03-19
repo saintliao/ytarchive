@@ -326,6 +326,32 @@ func (di *DownloadInfo) GetTimeSinceUpdated() time.Duration {
 	return time.Since(di.LastUpdated)
 }
 
+func replaceUnwritableFileString(str string) string {
+	replacer := strings.NewReplacer(
+		`/`, "⧸",
+		`\`, "⧹",
+		`:`, "˸",
+		`*`, "＊",
+		`?`, "？",
+		`<`, "＜",
+		`>`, "＞",
+		`|`, "｜",
+		`"`, "＂",
+	)
+	return replacer.Replace(str)
+}
+
+func replaceDotSign(str string) string {
+	idx := len(str) - 1
+	if idx < 0 {
+		return str
+	}
+	if str[idx] == '.' {
+		str = str[:idx] + "#" + str[idx+1:]
+	}
+	return str
+}
+
 func (fi FormatInfo) SetInfo(player_response *PlayerResponse) {
 	pmfr := player_response.Microformat.PlayerMicroformatRenderer
 	vid := player_response.VideoDetails.VideoID
@@ -339,13 +365,13 @@ func (fi FormatInfo) SetInfo(player_response *PlayerResponse) {
 
 	fi["id"] = vid
 	fi["url"] = url
-	fi["title"] = strings.TrimSpace(player_response.VideoDetails.Title)
+	fi["title"] = replaceUnwritableFileString(strings.TrimSpace(player_response.VideoDetails.Title))
 	fi["channel_id"] = player_response.VideoDetails.ChannelID
-	fi["channel"] = player_response.VideoDetails.Author
+	fi["channel"] = replaceUnwritableFileString(player_response.VideoDetails.Author)
 	fi["upload_date"] = startDate
 	fi["start_date"] = startDate
 	fi["publish_date"] = publishDate
-	fi["description"] = strings.TrimSpace(player_response.VideoDetails.ShortDescription)
+	fi["description"] = replaceUnwritableFileString(strings.TrimSpace(player_response.VideoDetails.ShortDescription))
 }
 
 func (mi MetaInfo) SetInfo(fi FormatInfo) {

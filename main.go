@@ -321,6 +321,7 @@ var (
 	cliFlags          *flag.FlagSet
 	info              *DownloadInfo
 	cookieFile        string
+	cookieFromBrowser string
 	fnameFormat       string
 	gvAudioUrl        string
 	gvVideoUrl        string
@@ -411,6 +412,7 @@ func init() {
 	cliFlags.BoolVar(&monitorChannel, "monitor-channel", false, "Continually monitor a channel for streams.")
 	cliFlags.StringVar(&cookieFile, "c", "", "Cookies to be used when downloading.")
 	cliFlags.StringVar(&cookieFile, "cookies", "", "Cookies to be used when downloading.")
+	cliFlags.StringVar(&cookieFromBrowser, "cookies-from-browser", "", "The name of the browser to load cookies	from.")
 	cliFlags.StringVar(&fnameFormat, "o", DefaultFilenameFormat, "Filename output format.")
 	cliFlags.StringVar(&fnameFormat, "output", DefaultFilenameFormat, "Filename output format.")
 	cliFlags.StringVar(&ffmpegPath, "ffmpeg-path", "ffmpeg", "Specify a custom ffmpeg program location, including program name.")
@@ -578,6 +580,17 @@ func run() int {
 
 		client.Jar = cjar
 		LogInfo("Loaded cookie file %s", cookieFile)
+	}
+
+	if client.Jar == nil && len(cookieFromBrowser) > 0 {
+		cjar, err := info.GetCookieFromBrowser(cookieFromBrowser)
+		if err != nil {
+			LogError("Failed to load cookies from browser: %s", err)
+			return 1
+		}
+
+		client.Jar = cjar
+		LogGeneral("Loaded [%s] cookies.", cookieFromBrowser)
 	}
 
 	if !info.GVideoDDL && !info.GetVideoInfo() {

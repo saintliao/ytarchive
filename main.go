@@ -80,6 +80,15 @@ Options:
 		the script to access members-only content if you are a member
 		for the given stream's user. Must be netscape cookie format.
 
+	--cookies-from-browser BROWSER[:PROFILE]
+		Attempt to automatically load cookies from your browser. Currently 
+		supported browsers are: firefox, chrome, brave, edge. PROFILE is
+		optional and only applies to chromium core browser. If not provided, 
+		the default	profile will be used. For example, to load cookies from
+		Firefox's default profile, use '--cookie-from-browser firefox', And 
+		wanna load cookies from Chrome's 'Profile 1', use 
+		'--cookies-from-browser chrome:"Profile 1"'.
+
 	--debug
 		Print a lot of extra information.
 
@@ -583,14 +592,22 @@ func run() int {
 	}
 
 	if client.Jar == nil && len(cookieFromBrowser) > 0 {
-		cjar, err := info.GetCookieFromBrowser(cookieFromBrowser)
+		arr := strings.Split(cookieFromBrowser, ":")
+		profile := ""
+		if len(arr) == 2 {
+			cookieFromBrowser = arr[0]
+			profile = arr[1]
+		} else {
+			cookieFromBrowser = arr[0]
+		}
+		cjar, cookieSize, err := info.GetCookieFromBrowser(cookieFromBrowser, profile)
 		if err != nil {
 			LogError("Failed to load cookies from browser: %s", err)
 			return 1
 		}
 
 		client.Jar = cjar
-		LogGeneral("Loaded [%s] cookies.", cookieFromBrowser)
+		LogGeneral("The [%s] browser has (%d) cookies loaded.", cookieFromBrowser, cookieSize)
 	}
 
 	if !info.GVideoDDL && !info.GetVideoInfo() {

@@ -37,8 +37,11 @@ var (
 	basePath   string
 )
 
-func getBrowserCookiePaths(browserName string) ([]string, error) {
+func getBrowserCookiePaths(browserName, profileName string) ([]string, error) {
 	browserName = strings.ToLower(browserName)
+	if profileName == "" {
+		profileName = "Default"
+	}
 
 	var cookieFile string
 
@@ -90,7 +93,7 @@ func getBrowserCookiePaths(browserName string) ([]string, error) {
 	}
 
 	profileBasePath := filepath.Join(basePath, profileDir)
-	profiles, err := getProfiles(profileBasePath, browserName)
+	profiles, err := getProfiles(profileBasePath, browserName, profileName)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +119,7 @@ func getBrowserCookiePaths(browserName string) ([]string, error) {
 	return cookiePaths, nil
 }
 
-func getProfiles(profileBasePath string, browserName string) ([]string, error) {
+func getProfiles(profileBasePath, browserName, profileName string) ([]string, error) {
 	file, err := os.Open(profileBasePath)
 	if err != nil {
 		return nil, err
@@ -135,13 +138,12 @@ func getProfiles(profileBasePath string, browserName string) ([]string, error) {
 				profiles = append(profiles, entry.Name())
 			} else if browserName != "firefox" {
 				// if entry.Name() == "Default" || strings.HasPrefix(entry.Name(), "Profile ") {
-				if entry.Name() == "Default" {
+				if strings.Contains(entry.Name(), profileName) {
 					profiles = append(profiles, entry.Name())
 				}
 			}
 		}
 	}
-
 	return profiles, nil
 }
 
@@ -304,18 +306,25 @@ func decryptChromiumValue(encryptedValue, key []byte) (string, error) {
 	return "", errors.New("unknown platform")
 }
 
-func (di *DownloadInfo) GetCookieFromBrowser(browser string) (*cookiejar.Jar, error) {
+func (di *DownloadInfo) GetCookieFromBrowser(browser, profile string) (*cookiejar.Jar, int, error) {
+	count := 0
+
 	jar, err := cookiejar.New(&cookiejar.Options{
 		PublicSuffixList: publicsuffix.List,
 	})
 	if err != nil {
-		return nil, err
+		return nil, count, err
 	}
 
-	cookiePaths, err := getBrowserCookiePaths(browser)
+	cookiePaths, err := getBrowserCookiePaths(browser, profile)
 	if err != nil {
 		LogError("Error getting browser cookie paths: %s", err.Error())
-		return nil, err
+		return nil, count, err
+	}
+
+	if len(cookiePaths) == 0 {
+		LogError("No cookie paths found for %s", browser)
+		return nil, count, errors.New("no cookie paths found")
 	}
 
 	var chromiumKey []byte
@@ -323,10 +332,9 @@ func (di *DownloadInfo) GetCookieFromBrowser(browser string) (*cookiejar.Jar, er
 		chromiumKey, err = getChromiumKey(browser)
 		if err != nil {
 			LogError("Error getting Chromium key: %v\n", err)
-			return nil, err
+			return nil, count, err
 		}
 	}
-
 	cookieMap := make(map[string][]*http.Cookie)
 	for _, cookiePath := range cookiePaths {
 		cookies, err := getCookies(cookiePath, browser, chromiumKey)
@@ -340,6 +348,7 @@ func (di *DownloadInfo) GetCookieFromBrowser(browser string) (*cookiejar.Jar, er
 				cookieMap[cookie.Domain] = make([]*http.Cookie, 0)
 			}
 			cookieMap[cookie.Domain] = append(cookieMap[cookie.Domain], cookie)
+			count++
 		}
 	}
 
@@ -354,5 +363,6 @@ func (di *DownloadInfo) GetCookieFromBrowser(browser string) (*cookiejar.Jar, er
 			}
 		}
 	}
-	return jar, nil
+
+	return jar, count, nil
 }

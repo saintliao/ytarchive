@@ -341,17 +341,6 @@ func replaceUnwritableFileString(str string) string {
 	return replacer.Replace(str)
 }
 
-func replaceDotSign(str string) string {
-	idx := len(str) - 1
-	if idx < 0 {
-		return str
-	}
-	if str[idx] == '.' {
-		str = str[:idx] + "#" + str[idx+1:]
-	}
-	return str
-}
-
 func (fi FormatInfo) SetInfo(player_response *PlayerResponse) {
 	pmfr := player_response.Microformat.PlayerMicroformatRenderer
 	vid := player_response.VideoDetails.VideoID

@@ -480,6 +480,17 @@ func init() {
 	})
 }
 
+func replaceLastDotWithHash(path string) string {
+	path = filepath.Clean(path)
+	parts := strings.Split(path, string(filepath.Separator))
+	for i := range parts {
+		if filepath.Ext(parts[i]) == "." {
+			parts[i] = parts[i][:len(parts[i])-1] + "#"
+		}
+	}
+	return strings.Join(parts, string(filepath.Separator))
+}
+
 // ehh, bad way to do this probably but allows deferred functions to run
 // while also allowing early return with a non-0 exit code.
 func run() int {
@@ -626,6 +637,7 @@ func run() int {
 	if len(strings.TrimSpace(fdir)) == 0 {
 		fdir = "."
 	}
+	fdir = replaceLastDotWithHash(fdir)
 
 	absDir, err = filepath.Abs(fdir)
 	if err == nil {

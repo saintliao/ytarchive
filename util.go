@@ -86,7 +86,7 @@ const (
 // If we run into file length issues, chances are the max file name length is around 255 bytes.
 // Seems Go automatically converts to long paths for Windows so we only have to worry about the
 // actual file name.
-const MaxFileNameLength = 1012 // 255 - len(".description")
+const MaxFileNameLength = 1012 // 1024 - len(".description")
 
 var (
 	HtmlVideoLinkTag = []byte(`<link rel="canonical" href="https://www.youtube.com/watch?v=`)
@@ -200,7 +200,6 @@ func InitializeHttpClient(proxyUrl *url.URL) {
 func SterilizeFilename(s string) string {
 	regex := regexp.MustCompile(`[\/:*?"<>|]`)
 	return regex.ReplaceAllString(s, "_")
-	// return fnameReplacer.Replace(s)
 }
 
 // Pretty formatting of byte count

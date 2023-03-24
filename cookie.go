@@ -113,6 +113,8 @@ func getBrowserCookiePaths(browserName, profileName string) ([]string, error) {
 		}
 		if _, err := os.Stat(cookiePath); err == nil {
 			cookiePaths = append(cookiePaths, cookiePath)
+		} else {
+			LogWarn("Cookie file not found: %s", cookiePath)
 		}
 	}
 
@@ -137,7 +139,6 @@ func getProfiles(profileBasePath, browserName, profileName string) ([]string, er
 			if browserName == "firefox" && strings.Contains(entry.Name(), ".default") {
 				profiles = append(profiles, entry.Name())
 			} else if browserName != "firefox" {
-				// if entry.Name() == "Default" || strings.HasPrefix(entry.Name(), "Profile ") {
 				if strings.Contains(entry.Name(), profileName) {
 					profiles = append(profiles, entry.Name())
 				}
@@ -323,7 +324,7 @@ func (di *DownloadInfo) GetCookieFromBrowser(browser, profile string) (*cookieja
 	}
 
 	if len(cookiePaths) == 0 {
-		LogError("No cookie paths found for %s", browser)
+		LogError("No cookie path found for the browser [%s] and the specified profile [%s], please check if the profile exists or not", browser, profile)
 		return nil, count, errors.New("no cookie paths found")
 	}
 

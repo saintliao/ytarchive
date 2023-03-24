@@ -614,11 +614,11 @@ func run() int {
 		cjar, cookieSize, err := info.GetCookieFromBrowser(cookieFromBrowser, profile)
 		if err != nil {
 			LogError("Failed to load cookies from browser: %s", err)
-			return 1
+			// return 1
+		} else {
+			client.Jar = cjar
+			LogGeneral("The [%s] browser has (%d) cookies loaded.", cookieFromBrowser, cookieSize)
 		}
-
-		client.Jar = cjar
-		LogGeneral("The [%s] browser has (%d) cookies loaded.", cookieFromBrowser, cookieSize)
 	}
 
 	if !info.GVideoDDL && !info.GetVideoInfo() {

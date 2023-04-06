@@ -330,7 +330,7 @@ func replaceUnwritableFileString(str string) string {
 	replacer := strings.NewReplacer(
 		`/`, "⧸",
 		`\`, "⧹",
-		`:`, "˸",
+		`:`, "： ",
 		`*`, "＊",
 		`?`, "？",
 		`<`, "＜",

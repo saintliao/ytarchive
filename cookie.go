@@ -45,9 +45,6 @@ var (
 // - Brave: returns the path to the Cookies file for the given profile.
 func getBrowserCookiePaths(browserName, profileName string) ([]string, error) {
 	browserName = strings.ToLower(browserName)
-	if profileName == "" {
-		profileName = "Default"
-	}
 
 	var cookieFile string
 
@@ -101,66 +98,75 @@ func getBrowserCookiePaths(browserName, profileName string) ([]string, error) {
 	}
 
 	profileBasePath := filepath.Join(basePath, profileDir)
-	profiles, err := getProfiles(profileBasePath, browserName, profileName)
+
+	var cookiePaths []string
+	cookiePath, err := getCookieFullPath(profileBasePath, browserName, profileName, cookieFile)
 	if err != nil {
 		return nil, err
 	}
-
-	var cookiePaths []string
-	// Get the paths to the cookie files for the given profiles.
-	for _, profile := range profiles {
-		var cookiePath string
-		switch browserName {
-		case "chrome", "edge", "brave":
-			if profile == "Default" {
-				cookiePath = filepath.Join(profileBasePath, profile, "Network", cookieFile)
-			} else {
-				cookiePath = filepath.Join(profileBasePath, profile, cookieFile)
-			}
-		default:
-			cookiePath = filepath.Join(profileBasePath, profile, cookieFile)
-		}
-		if _, err := os.Stat(cookiePath); err == nil {
-			cookiePaths = append(cookiePaths, cookiePath)
-		} else {
-			LogWarn("Cookie file not found: %s", cookiePath)
-		}
-	}
-
+	cookiePaths = append(cookiePaths, cookiePath)
 	return cookiePaths, nil
 }
 
-// getProfiles returns the profiles for the given browser.
-// profileBasePath is the base path to the browser's profile directory.
-// browserName is the name of the browser.
-// profileName is the name of the profile.
-func getProfiles(profileBasePath, browserName, profileName string) ([]string, error) {
-	file, err := os.Open(profileBasePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+// getCookieFullPath returns the path to the cookie file for the given browser and profile.
+func getCookieFullPath(profileBasePath, browserName, profileName, cookieFile string) (string, error) {
+	// If a profile name is given, return the path to the cookie file for that profile.
+	if len(profileName) > 0 {
+		file, err := os.Open(profileBasePath)
+		if err != nil {
+			return "", err
+		}
+		defer file.Close()
 
-	// Read all the entries in the profile directory.
-	entries, err := file.ReadDir(-1)
-	if err != nil {
-		return nil, err
-	}
+		// Read all the entries in the profile directory.
+		entries, err := file.ReadDir(-1)
+		if err != nil {
+			return "", err
+		}
 
-	var profiles []string
-	// Get the profiles for the given browser.
-	for _, entry := range entries {
-		if entry.IsDir() {
-			if browserName == "firefox" && strings.Contains(entry.Name(), ".default") {
-				profiles = append(profiles, entry.Name())
-			} else if browserName != "firefox" {
-				if strings.Contains(entry.Name(), profileName) {
+		var profiles []string
+		// Get the profiles for the given browser.
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				if browserName == "firefox" && strings.Contains(entry.Name(), ".default") {
 					profiles = append(profiles, entry.Name())
+				} else if browserName != "firefox" {
+					if strings.Contains(entry.Name(), profileName) {
+						profiles = append(profiles, entry.Name())
+					}
 				}
 			}
 		}
+		if len(profiles) == 0 {
+			return "", errors.New("profile not found")
+		}
+		return filepath.Join(profileBasePath, profiles[0], cookieFile), nil
 	}
-	return profiles, nil
+
+	// If no profile name is given, return the path to the cookie file with the latest modification time.
+	target := ""
+	mtime := time.Time{}
+
+	LogGeneral("Start looking for cookie for [%s], please wait...", browserName)
+
+	filepath.Walk(profileBasePath, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		if info.Name() == cookieFile {
+			if info.ModTime().After(mtime) {
+				mtime = info.ModTime()
+				target = path
+			}
+		}
+		return nil
+	})
+
+	if target == "" {
+		return "", errors.New("cookie file not found")
+	}
+	return target, nil
 }
 
 // getChromiumKey returns the decryption key for the given browser.
@@ -245,6 +251,9 @@ func getCookies(cookieDBPath, browserName string, chromiumKey []byte) ([]*http.C
 
 		if browserName == "firefox" {
 			err = rows.Scan(&name, &value, &host, &path, &expires, &isSecure, &isHTTPOnly)
+			if err != nil {
+				return nil, fmt.Errorf("could not scan cookie row: %v", err)
+			}
 		} else {
 			var encryptedValue []byte
 			err = rows.Scan(&name, &encryptedValue, &host, &path, &expires, &isSecure, &isHTTPOnly)

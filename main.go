@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/alessio/shellescape"
 )
@@ -259,6 +260,13 @@ Options:
 	--write-thumbnail
 		Write the thumbnail to a separate file.
 
+	--singleton-mux
+		Makes multi ytarchive executions only allow one muxing process at a time.
+	
+	--mux-lock-file FILENAME
+		When using --singleton-mux, this is the file that will be used to lock, 
+		default filename is "mux.lock".
+
 Examples:
 	%[1]s -w
 		Waits for a stream. Will prompt for a URL and quality.
@@ -335,6 +343,7 @@ var (
 	gvAudioUrl        string
 	gvVideoUrl        string
 	ffmpegPath        string
+	muxLockFile       string
 	proxyUrl          *url.URL
 	threadCount       uint
 	fragMaxTries      uint
@@ -370,6 +379,7 @@ var (
 	monitorChannel    bool
 	vp9               bool
 	h264              bool
+	singletonMux      bool
 
 	cancelled = false
 )
@@ -419,12 +429,14 @@ func init() {
 	cliFlags.BoolVar(&keepTSFiles, "keep-ts-files", false, "Keep the raw .ts files instead of deleting them after muxing.")
 	cliFlags.BoolVar(&separateAudio, "separate-audio", false, "Save a copy of the audio separately along with the muxed file.")
 	cliFlags.BoolVar(&monitorChannel, "monitor-channel", false, "Continually monitor a channel for streams.")
+	cliFlags.BoolVar(&singletonMux, "singleton-mux", false, "Only allow one instance of the muxer to run at a time.")
 	cliFlags.StringVar(&cookieFile, "c", "", "Cookies to be used when downloading.")
 	cliFlags.StringVar(&cookieFile, "cookies", "", "Cookies to be used when downloading.")
 	cliFlags.StringVar(&cookieFromBrowser, "cookies-from-browser", "", "The name of the browser to load cookies	from.")
 	cliFlags.StringVar(&fnameFormat, "o", DefaultFilenameFormat, "Filename output format.")
 	cliFlags.StringVar(&fnameFormat, "output", DefaultFilenameFormat, "Filename output format.")
 	cliFlags.StringVar(&ffmpegPath, "ffmpeg-path", "ffmpeg", "Specify a custom ffmpeg program location, including program name.")
+	cliFlags.StringVar(&muxLockFile, "mux-lock-file", "", "Single instance mux lock filename.")
 	cliFlags.IntVar(&retrySecs, "r", 0, "Seconds to wait between checking stream status.")
 	cliFlags.IntVar(&retrySecs, "retry-stream", 0, "Seconds to wait between checking stream status.")
 	cliFlags.UintVar(&threadCount, "threads", 1, "Number of download threads for each stream type.")
@@ -932,6 +944,21 @@ func run() int {
 	}
 
 	LogGeneral("Muxing final file...")
+
+	// Wait for any other muxing to finish
+	if singletonMux {
+		if muxLockFile == "" {
+			muxLockFile = "muxing.lock"
+		}
+		for {
+			if isMuxing(muxLockFile) {
+				time.Sleep(1 * time.Second)
+			} else {
+				break
+			}
+		}
+	}
+
 	fRetcode := Execute(ffmpegPath, ffmpegArgs.Args)
 	if fRetcode != 0 {
 		retcode = fRetcode
@@ -945,6 +972,10 @@ func run() int {
 		LogError("Execute returned code %d. Something must have gone wrong with ffmpeg.", retcode)
 		LogError("The .ts files will not be deleted in case the final file is broken.")
 		LogError("Finally, the ffmpeg command was either written to a file or output above.")
+	}
+
+	if singletonMux {
+		markMuxingDone(muxLockFile)
 	}
 
 	if separateAudio {

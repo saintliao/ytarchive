@@ -151,6 +151,10 @@ func getCookieFullPath(profileBasePath, browserName, profileName, cookieFile str
 	LogGeneral("Start looking for cookie for [%s], please wait...", browserName)
 
 	filepath.Walk(profileBasePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			LogError("Error while looking for cookie file: ERR=%v", err)
+			return nil
+		}
 		if info.IsDir() {
 			return nil
 		}

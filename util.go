@@ -873,7 +873,7 @@ func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, on
 		"-nostdin",
 		"-loglevel", "fatal",
 		"-stats",
-		"-hwaccel", "cuda",
+		// "-hwaccel", "cuda",
 	)
 
 	if downloadThumbnail && !mkv {
@@ -947,4 +947,23 @@ func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, on
 		Args:     ffmpegArgs,
 		FileName: mergeFile,
 	}
+}
+
+// isMuxing checks if the muxing lock file exists. If it does, it returns true.
+func isMuxing(lockFilename string) bool {
+	if Exists(lockFilename) {
+		return true
+	}
+	file, err := os.Create(lockFilename)
+	if err != nil {
+		LogError("Error creating muxing lock file: FILE=%s, ERROR=%s", lockFilename, err.Error())
+		return false
+	}
+	defer file.Close()
+	return false
+}
+
+// markMuxingDone removes the muxing lock file.
+func markMuxingDone(lockFilename string) {
+	os.Remove(lockFilename)
 }

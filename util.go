@@ -951,9 +951,21 @@ func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, on
 
 // isMuxing checks if the muxing lock file exists. If it does, it returns true.
 func isMuxing(lockFilename string) bool {
-	if Exists(lockFilename) {
-		return true
+	info, err := os.Stat(lockFilename)
+	if err == nil || os.IsExist(err) {
+		// If the file exists and is older than 12 hours, we assume it's not locked.
+		if info != nil {
+			if info.ModTime().Add(12 * time.Hour).Before(time.Now()) {
+				LogError("Muxing lock file is older than 12 hours. Removing it.")
+				os.Remove(lockFilename)
+			} else {
+				return true
+			}
+		} else {
+			return true
+		}
 	}
+	// If the lock file doesn't exist, we create it.
 	file, err := os.Create(lockFilename)
 	if err != nil {
 		LogError("Error creating muxing lock file: FILE=%s, ERROR=%s", lockFilename, err.Error())

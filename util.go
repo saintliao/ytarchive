@@ -266,21 +266,44 @@ Returns the process return code, or -1 on unknown error
 func Execute(prog string, args []string) int {
 	retcode := 0
 	cmd := exec.Command(prog, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
 
 	// Allow for binaries in the current working directory
 	if errors.Is(cmd.Err, exec.ErrDot) {
 		cmd.Err = nil
 	}
 
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		LogError(err.Error())
+		return -1
+	}
+
 	LogDebug("Executing command: %s %s", prog, shellescape.QuoteCommand(cmd.Args))
 
-	err := cmd.Run()
+	err = cmd.Start()
+	if err != nil {
+		LogError(err.Error())
+		return -1
+	}
+
+	stderrBuf := make([]byte, 2048)
+	for {
+		bytes, err := stderr.Read(stderrBuf)
+		fmt.Fprint(os.Stderr, string(stderrBuf[:bytes]))
+
+		if err != nil {
+			if err != io.EOF {
+				LogError(err.Error())
+			}
+
+			break
+		}
+	}
+
+	err = cmd.Wait()
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			retcode = cmd.ProcessState.ExitCode()
-			LogError(stderr.String())
 		} else {
 			retcode = -1
 			LogError(err.Error())
@@ -361,6 +384,9 @@ func ParseQualitySelection(formats []string, quality string) []string {
 		if stripped == "best" {
 			selQualities = append(selQualities, stripped)
 			continue
+		} else if stripped == "audio" {
+			selQualities = append(selQualities, stripped)
+			continue
 		}
 
 		for _, v := range formats {
@@ -422,7 +448,7 @@ func GetUrlsFromManifest(manifest []byte) (map[int]string, int) {
 
 	err := xml.Unmarshal(manifest, &mpd)
 	if err != nil {
-		LogWarn("Error parsing DASH manifest: %s", err)
+		LogDebug("Error parsing DASH manifest: %s", err)
 		return urls, -1
 	}
 
@@ -603,7 +629,7 @@ func ContinueFragmentDownload(di *DownloadInfo, state *fragThreadState) bool {
 		if !di.IsLive() || di.IsUnavailable() {
 			if state.Is403 {
 				if di.IsUnavailable() {
-					LogWarn("%s: Download link likely expired and stream is privated or members only, cannot coninue download", state.Name)
+					LogWarn("%s: Download link likely expired and stream is privated or members only, cannot continue download", state.Name)
 				} else {
 					LogWarn("%s: Download link has likely expired and the stream has probably finished processing.", state.Name)
 					LogWarn("%s: You might want to use youtube-dl to download instead.", state.Name)
@@ -853,17 +879,6 @@ func TruncateString(s string, maxBytes int) string {
 	return b.String()
 }
 
-func WriteMuxFile(muxFile, ffmpegCmd string) int {
-	LogGeneral("Writing ffmpeg command to create the final file to %s\n", muxFile)
-	err := os.WriteFile(muxFile, []byte(ffmpegCmd), 0644)
-	if err != nil {
-		LogError("Error writing muxcmd file: %s", err.Error())
-		return 1
-	}
-
-	return 0
-}
-
 func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, onlyAudio, onlyVideo bool) FFMpegArgs {
 	mergeFile := ""
 	ext := ""
@@ -880,10 +895,10 @@ func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, on
 		ffmpegArgs = append(ffmpegArgs, "-i", thumbnail)
 	}
 
-	if mkv {
-		ext = "mkv"
-	} else if onlyAudio {
+	if onlyAudio {
 		ext = "m4a"
+	} else if mkv {
+		ext = "mkv"
 	} else {
 		ext = "mp4"
 	}

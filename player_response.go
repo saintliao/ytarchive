@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/net/html"
@@ -46,7 +47,8 @@ const (
 )
 
 var (
-	playerRespDecl = []byte("var ytInitialPlayerResponse =")
+	playerRespDecl    = []byte("var ytInitialPlayerResponse =")
+	ytInitialDataDecl = []byte("var ytInitialData =")
 )
 
 /*
@@ -117,10 +119,66 @@ type PlayerResponse struct {
 	} `json:"microformat"`
 }
 
+type YtInitialData struct {
+	Contents struct {
+		Twocolumnbrowseresultsrenderer struct {
+			Tabs []struct {
+				Tabrenderer struct {
+					Endpoint struct {
+						Commandmetadata struct {
+							Webcommandmetadata struct {
+								URL string `json:"url"`
+							} `json:"webCommandMetadata"`
+						} `json:"commandMetadata"`
+					} `json:"endpoint"`
+					Content struct {
+						Richgridrenderer struct {
+							Contents []RichGridContent `json:"contents"`
+						} `json:"richGridRenderer"`
+						SectionListRenderer struct {
+							Contents []SectionListContent `json:"contents"`
+						} `json:"sectionListRenderer"`
+					} `json:"content"`
+				} `json:"tabRenderer"`
+			} `json:"tabs"`
+		} `json:"twoColumnBrowseResultsRenderer"`
+	} `json:"contents"`
+}
+
+type RichGridContent struct {
+	Richitemrenderer struct {
+		Content struct {
+			Videorenderer struct {
+				Videoid           string `json:"videoId"`
+				Thumbnailoverlays []struct {
+					Thumbnailoverlaytimestatusrenderer struct {
+						Style string `json:"style"`
+					} `json:"thumbnailOverlayTimeStatusRenderer"`
+				} `json:"thumbnailOverlays"`
+			} `json:"videoRenderer"`
+		} `json:"content"`
+	} `json:"richItemRenderer"`
+}
+
+type SectionListContent struct {
+	ItemSectionRenderer struct {
+		Contents []struct {
+			Videorenderer struct {
+				Videoid           string `json:"videoId"`
+				Thumbnailoverlays []struct {
+					Thumbnailoverlaytimestatusrenderer struct {
+						Style string `json:"style"`
+					} `json:"thumbnailOverlayTimeStatusRenderer"`
+				} `json:"thumbnailOverlays"`
+			} `json:"videoRenderer"`
+		} `json:"contents"`
+	} `json:"itemSectionRenderer"`
+}
+
 // Search the given HTML for the player response object
-func GetPlayerResponseFromHtml(data []byte) []byte {
+func GetJsonFromHtml(htmlData []byte, jsonDecl []byte) []byte {
 	var objData []byte
-	reader := bytes.NewReader(data)
+	reader := bytes.NewReader(htmlData)
 	tokenizer := html.NewTokenizer(reader)
 	isScript := false
 
@@ -132,7 +190,7 @@ func GetPlayerResponseFromHtml(data []byte) []byte {
 		case html.TextToken:
 			if isScript {
 				data := tokenizer.Text()
-				declStart := bytes.Index(data, playerRespDecl)
+				declStart := bytes.Index(data, jsonDecl)
 				if declStart < 0 {
 					continue
 				}
@@ -157,6 +215,39 @@ func GetPlayerResponseFromHtml(data []byte) []byte {
 			}
 		}
 	}
+}
+
+func GetNewestStreamFromStreams(liveUrl string) string {
+	initialData := &YtInitialData{}
+	var contents []RichGridContent
+	streamsUrl := strings.Replace(liveUrl, "/live", "/streams", 1)
+	streamsHtml := DownloadData(streamsUrl)
+	ytInitialData := GetJsonFromHtml(streamsHtml, ytInitialDataDecl)
+	streamUrl := ""
+
+	err := json.Unmarshal(ytInitialData, initialData)
+	if err != nil {
+		return streamUrl
+	}
+
+	for _, tab := range initialData.Contents.Twocolumnbrowseresultsrenderer.Tabs {
+		if strings.HasSuffix(tab.Tabrenderer.Endpoint.Commandmetadata.Webcommandmetadata.URL, "/streams") {
+			contents = tab.Tabrenderer.Content.Richgridrenderer.Contents
+		}
+	}
+
+	for _, content := range contents {
+		videoRenderer := content.Richitemrenderer.Content.Videorenderer
+
+		for _, thumbnailRenderer := range videoRenderer.Thumbnailoverlays {
+			if thumbnailRenderer.Thumbnailoverlaytimestatusrenderer.Style == "LIVE" {
+				streamUrl = fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoRenderer.Videoid)
+				return streamUrl
+			}
+		}
+	}
+
+	return streamUrl
 }
 
 // At the time of adding, retrieving the player response from the api while
@@ -220,6 +311,28 @@ func (di *DownloadInfo) DownloadAndroidPlayerResponse() (*PlayerResponse, error)
 	return pr, nil
 }
 
+func (di *DownloadInfo) GetVideoHtml() []byte {
+	var videoHtml []byte
+
+	if di.LiveURL {
+		streamUrl := ""
+
+		if len(streamUrl) == 0 {
+			streamUrl = GetNewestStreamFromStreams(di.URL)
+		}
+
+		if len(streamUrl) > 0 {
+			videoHtml = DownloadData(streamUrl)
+		}
+	}
+
+	if len(videoHtml) == 0 {
+		videoHtml = DownloadData(di.URL)
+	}
+
+	return videoHtml
+}
+
 // Get the player response object from youtube
 func (di *DownloadInfo) GetPlayerResponse(videoHtml []byte) (*PlayerResponse, error) {
 	pr := &PlayerResponse{}
@@ -228,8 +341,12 @@ func (di *DownloadInfo) GetPlayerResponse(videoHtml []byte) (*PlayerResponse, er
 		return nil, fmt.Errorf("unable to retrieve data from video page")
 	}
 
-	prData := GetPlayerResponseFromHtml(videoHtml)
+	prData := GetJsonFromHtml(videoHtml, playerRespDecl)
 	if len(prData) == 0 {
+		if debug && di.InProgress {
+			LogDebug("Could not find player response from video watch page. Writing html file to %s.html", di.VideoID)
+			os.WriteFile(fmt.Sprintf("%s.html", di.VideoID), videoHtml, 0644)
+		}
 		return nil, fmt.Errorf("unable to retrieve player response object from watch page")
 	}
 
@@ -253,6 +370,7 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 	isLiveURL := di.LiveURL
 	waitOnLiveURL := isLiveURL && di.RetrySecs > 0
 	liveWaited := 0
+	retryCount := 0
 	var secsLate int
 	var err error
 
@@ -261,19 +379,29 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 	}
 
 	for {
-		videoHtml := DownloadData(di.URL)
+		videoHtml := di.GetVideoHtml()
 		pr, err = di.GetPlayerResponse(videoHtml)
 
 		if err != nil {
 			if waitOnLiveURL {
+				if len(selectedQualities) < 1 {
+					fmt.Fprintln(os.Stderr)
+					selectedQualities = GetQualityFromUser(VideoQualities, true)
+				}
+
 				if liveWaited == 0 {
 					LogGeneral("You have opted to wait for a livestream to be scheduled. Retrying every %d seconds.\n", di.RetrySecs)
 				}
 
 				time.Sleep(time.Duration(di.RetrySecs) * time.Second)
 				liveWaited += di.RetrySecs
+				retryCount += 1
 				if loglevel > LoglevelQuiet {
-					fmt.Fprintf(os.Stderr, "\rTotal time waited: %d seconds", liveWaited)
+					fmt.Fprintf(os.Stderr, "\rRetries: %d (Last retry: %s), Total time waited: %d seconds",
+						retryCount,
+						time.Now().Format("2006/01/02 15:04:05"),
+						liveWaited,
+					)
 				}
 				continue
 			}
@@ -368,6 +496,15 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 				}
 
 				time.Sleep(time.Duration(di.RetrySecs) * time.Second)
+				liveWaited += di.RetrySecs
+				retryCount += 1
+				if loglevel > LoglevelQuiet {
+					fmt.Fprintf(os.Stderr, "\rRetries: %d (Last retry: %s), Total time waited: %d seconds",
+						retryCount,
+						time.Now().Format("2006/01/02 15:04:05"),
+						liveWaited,
+					)
+				}
 				continue
 			}
 

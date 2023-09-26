@@ -873,7 +873,7 @@ func GetFFmpegArgs(audioFile, videoFile, thumbnail, fileDir, fileName string, on
 		"-nostdin",
 		"-loglevel", "fatal",
 		"-stats",
-		// "-hwaccel", "cuda",
+		"-hwaccel", "cuda",
 	)
 
 	if downloadThumbnail && !mkv {
@@ -956,8 +956,9 @@ func isMuxing(lockFilename string) bool {
 		// If the file exists and is older than 12 hours, we assume it's not locked.
 		if info != nil {
 			if info.ModTime().Add(12 * time.Hour).Before(time.Now()) {
-				LogError("Muxing lock file is older than 12 hours. Removing it.")
-				os.Remove(lockFilename)
+				LogWarn("Muxing lock file is older than 12 hours. Removing it.")
+				markMuxingDone(lockFilename)
+				return !createMuxingLockFile(lockFilename)
 			} else {
 				return true
 			}
@@ -966,16 +967,24 @@ func isMuxing(lockFilename string) bool {
 		}
 	}
 	// If the lock file doesn't exist, we create it.
+	return !createMuxingLockFile(lockFilename)
+}
+
+// markMuxingDone removes the muxing lock file.
+func markMuxingDone(lockFilename string) {
+	err := os.Remove(lockFilename)
+	if err != nil {
+		LogError("Error removing muxing lock file: FILE=%s, ERROR=%s", lockFilename, err.Error())
+	}
+}
+
+// createMuxingLockFile creates the muxing lock file.
+func createMuxingLockFile(lockFilename string) bool {
 	file, err := os.Create(lockFilename)
 	if err != nil {
 		LogError("Error creating muxing lock file: FILE=%s, ERROR=%s", lockFilename, err.Error())
 		return false
 	}
-	defer file.Close()
-	return false
-}
-
-// markMuxingDone removes the muxing lock file.
-func markMuxingDone(lockFilename string) {
-	os.Remove(lockFilename)
+	file.Close()
+	return true
 }

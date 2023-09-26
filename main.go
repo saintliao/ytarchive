@@ -260,11 +260,11 @@ Options:
 	--write-thumbnail
 		Write the thumbnail to a separate file.
 
-	--singleton-mux
+	--exclusive-mux
 		Makes multi ytarchive executions only allow one muxing process at a time.
 	
 	--mux-lock-file FILENAME
-		When using --singleton-mux, this is the file that will be used to lock, 
+		When using --exclusive-mux, this is the file that will be used to lock, 
 		default filename is "mux.lock".
 
 Examples:
@@ -379,7 +379,7 @@ var (
 	monitorChannel    bool
 	vp9               bool
 	h264              bool
-	singletonMux      bool
+	exclusiveMux      bool
 
 	cancelled = false
 )
@@ -429,7 +429,8 @@ func init() {
 	cliFlags.BoolVar(&keepTSFiles, "keep-ts-files", false, "Keep the raw .ts files instead of deleting them after muxing.")
 	cliFlags.BoolVar(&separateAudio, "separate-audio", false, "Save a copy of the audio separately along with the muxed file.")
 	cliFlags.BoolVar(&monitorChannel, "monitor-channel", false, "Continually monitor a channel for streams.")
-	cliFlags.BoolVar(&singletonMux, "singleton-mux", false, "Only allow one instance of the muxer to run at a time.")
+	cliFlags.BoolVar(&exclusiveMux, "exclusive-mux", false, "Only allow one instance of the muxer to run at a time.")
+	cliFlags.BoolVar(&exclusiveMux, "singleton-mux", false, "Only allow one instance of the muxer to run at a time.")
 	cliFlags.StringVar(&cookieFile, "c", "", "Cookies to be used when downloading.")
 	cliFlags.StringVar(&cookieFile, "cookies", "", "Cookies to be used when downloading.")
 	cliFlags.StringVar(&cookieFromBrowser, "cookies-from-browser", "", "The name of the browser to load cookies	from.")
@@ -946,16 +947,12 @@ func run() int {
 	LogGeneral("Muxing final file...")
 
 	// Wait for any other muxing to finish
-	if singletonMux {
+	if exclusiveMux {
 		if muxLockFile == "" {
 			muxLockFile = "muxing.lock"
 		}
-		for {
-			if isMuxing(muxLockFile) {
-				time.Sleep(1 * time.Second)
-			} else {
-				break
-			}
+		for isMuxing(muxLockFile) {
+			time.Sleep(5 * time.Second)
 		}
 	}
 
@@ -974,10 +971,6 @@ func run() int {
 		LogError("Finally, the ffmpeg command was either written to a file or output above.")
 	}
 
-	if singletonMux {
-		markMuxingDone(muxLockFile)
-	}
-
 	if separateAudio {
 		LogGeneral("Creating separate audio file...")
 		aRetcode := Execute(ffmpegPath, audioFFMpegArgs.Args)
@@ -992,6 +985,10 @@ func run() int {
 		LogError("At least one error occurred when moving files. Will not delete them.")
 	} else if tmpDir != fdir {
 		os.RemoveAll(tmpDir)
+	}
+
+	if exclusiveMux {
+		markMuxingDone(muxLockFile)
 	}
 
 	if retcode != 0 {

@@ -332,6 +332,29 @@ func DownloadData(url string) []byte {
 	return data
 }
 
+// Download data from the given URL with retries
+func DownloadDataV2(url string) []byte {
+	var data []byte
+	const retryCount = 3
+	for i := 0; i < retryCount; i++ {
+		resp, err := http.Get(url)
+		if err != nil {
+			LogWarn("Failed to retrieve data from %s: %v", url, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			LogWarn("Failed to read data from %s: %v", url, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		break
+	}
+	return data
+}
+
 /*
 Download the given url to the given file name.
 Obviously meant to be used for thumbnail images.

@@ -311,7 +311,7 @@ func (di *DownloadInfo) DownloadAndroidPlayerResponse() (*PlayerResponse, error)
 	return pr, nil
 }
 
-func (di *DownloadInfo) GetVideoHtml() []byte {
+func (di *DownloadInfo) GetVideoHtml(retry bool) []byte {
 	var videoHtml []byte
 
 	if di.LiveURL {
@@ -322,12 +322,20 @@ func (di *DownloadInfo) GetVideoHtml() []byte {
 		}
 
 		if len(streamUrl) > 0 {
-			videoHtml = DownloadData(streamUrl)
+			if retry {
+				videoHtml = DownloadDataV2(streamUrl)
+			} else {
+				videoHtml = DownloadData(streamUrl)
+			}
 		}
 	}
 
 	if len(videoHtml) == 0 {
-		videoHtml = DownloadData(di.URL)
+		if retry {
+			videoHtml = DownloadDataV2(di.URL)
+		} else {
+			videoHtml = DownloadData(di.URL)
+		}
 	}
 
 	return videoHtml
@@ -371,6 +379,7 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 	waitOnLiveURL := isLiveURL && di.RetrySecs > 0
 	liveWaited := 0
 	retryCount := 0
+	errCount := 0
 	var secsLate int
 	var err error
 
@@ -379,7 +388,7 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 	}
 
 	for {
-		videoHtml := di.GetVideoHtml()
+		videoHtml := di.GetVideoHtml(errCount > 0)
 		pr, err = di.GetPlayerResponse(videoHtml)
 
 		if err != nil {
@@ -413,8 +422,17 @@ func (di *DownloadInfo) GetPlayablePlayerResponse() (retrieved int, pr *PlayerRe
 				continue
 			}
 
+			if errCount < 30 {
+				errCount += 1
+				LogWarn("Error retrieving player response: %s", err.Error())
+				LogWarn("Retrying...")
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
 			fmt.Fprintln(os.Stderr)
 			LogError("Error retrieving player response: %s", err.Error())
+			os.WriteFile(fmt.Sprintf("%s.html", di.VideoID), videoHtml, 0644)
 			return PlayerResponseNotFound, nil, nil
 		}
 

@@ -109,6 +109,11 @@ Options:
 		Keep the final stream audio and video files after muxing them
 		instead of deleting them.
 
+	--members-only
+		Only download members-only streams. Can only be used with channel URLs
+		such as /live, /streams, etc, and requires cookies.
+		Useful when monitoring channels and you only want membership streams.
+
 	--merge
 		Automatically run the ffmpeg command for the downloaded streams
 		when manually cancelling the download. You will be prompted otherwise.
@@ -400,6 +405,7 @@ var (
 	monitorChannel    bool
 	vp9               bool
 	h264              bool
+	membersOnly       bool
 	exclusiveMux      bool
 
 	cancelled = false
@@ -452,6 +458,7 @@ func init() {
 	cliFlags.BoolVar(&keepTSFiles, "keep-ts-files", false, "Keep the raw .ts files instead of deleting them after muxing.")
 	cliFlags.BoolVar(&separateAudio, "separate-audio", false, "Save a copy of the audio separately along with the muxed file.")
 	cliFlags.BoolVar(&monitorChannel, "monitor-channel", false, "Continually monitor a channel for streams.")
+	cliFlags.BoolVar(&membersOnly, "members-only", false, "Only download members-only streams when waiting on a channel URL such as /live.")
 	cliFlags.BoolVar(&exclusiveMux, "exclusive-mux", false, "Only allow one instance of the muxer to run at a time.")
 	cliFlags.BoolVar(&exclusiveMux, "singleton-mux", false, "Only allow one instance of the muxer to run at a time.")
 	cliFlags.StringVar(&cookieFile, "c", "", "Cookies to be used when downloading.")
@@ -543,6 +550,7 @@ func run() int {
 	info.H264 = h264
 	info.RetrySecs = retrySecs
 	info.FragMaxTries = fragMaxTries
+	info.MembersOnly = membersOnly
 
 	if doWait {
 		info.Wait = ActionDo
